@@ -60,6 +60,11 @@ if(SNUPI_BUILD_STARTUP_TESTS)
   add_executable(snupi_presentation_policy_test tests/presentation_policy_test.cpp)
   target_include_directories(snupi_presentation_policy_test PRIVATE renderer)
   add_test(NAME snupi_presentation_policy COMMAND snupi_presentation_policy_test)
+  add_executable(snupi_main_menu_test tests/main_menu_test.cpp)
+  target_include_directories(snupi_main_menu_test PRIVATE src)
+  add_test(NAME snupi_main_menu COMMAND snupi_main_menu_test
+    "${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extracted/Packages/UI/FrontEnd.pkg"
+    "${CMAKE_CURRENT_BINARY_DIR}/test-hidelive.pkg")
   target_include_directories(snupi_startup_test PRIVATE src)
   add_test(NAME snupi_startup COMMAND snupi_startup_test
     "${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extracted/Packages/UI/InitialLoadingInterface.pkg"

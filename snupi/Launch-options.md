@@ -1,5 +1,34 @@
 # Launch options
 
+`snoopy.exe` always sets `license_mask` to `1` during startup, overriding saved
+config and command-line values. No license launch option is needed.
+
+Returning from Enlist Now uses the main menu's native Load-to-Default slide
+animation on every launch. The shipped Back action's invalid `Show` mode
+override is removed in the cached package, with or without `-hidelive`.
+
+Append `-hidelive` to hide **Xbox LIVE**, **Leaderboards**, and **Download Content**
+from the main menu. Keyboard/controller navigation skips those rows and starts
+on Enlist Now. The download notification badge is hidden as well. Other menus,
+including achievements and settings, are unchanged.
+
+```bat
+snoopy.exe -hidelive
+snoopy.exe -skipintro -hidelive
+launch_1x.bat -hidelive
+```
+
+With `-hidelive`, the remaining buttons share a compact layout and the paper
+panel shrinks to fit the four full-game options and stays anchored to the viewport
+bottom, including during slide transitions. Both aspect-ratio layouts keep
+the existing button and text sizes; the obsolete group divider is removed.
+
+`--hidelive` is also accepted. This option affects only the current launch:
+omitting it restores the original buttons. It patches a cached FrontEnd.pkg,
+preserves the original game file, and composes with `-skipintro` using a separate
+cache for each combination. It hides menu entries; it does not disable network
+services elsewhere in the game.
+
 Append `-skipintro` to skip startup logos and the save disclaimer:
 
 ```bat
@@ -47,3 +76,10 @@ intro movie array and timer; unsupported package layouts fail explicitly.
 Configure with `-DSNUPI_BUILD_STARTUP_TESTS=ON`, build `snupi_startup_test`, and run
 `ctest --test-dir out/build/win-amd64-relwithdebinfo --output-on-failure` to check
 argument matching, package bounds, preserved data, and invalid-input rejection.
+
+The Hide Live test also writes `test-hidelive.pkg` in the build directory. Its
+menu graph can be checked independently with:
+
+```text
+python tests/main_menu_package_test.py ../decomp/extracted/Packages/UI/FrontEnd.pkg out/build/win-amd64-relwithdebinfo/test-hidelive.pkg
+```

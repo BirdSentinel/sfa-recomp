@@ -16,6 +16,11 @@ int main(int argc, char** argv) {
   require(normalized == std::vector<std::string>{"-skipintro", "--skipintro",
       "--resolution_scale=2", "--skipintro", "-skipintro-other"}, "Argument alias");
   require(snupi::startup::NormalizeArguments(1, args)[0] == "-skipintro", "Normal launch");
+  char hide[] = "-hidelive", hide_long[] = "--hidelive", hide_similar[] = "-hidelive-other";
+  char* combined[] = {exe, flag, hide, hide_long, hide_similar};
+  require(snupi::startup::NormalizeArguments(5, combined) ==
+      std::vector<std::string>{"-skipintro", "--skipintro", "--hidelive", "--hidelive", "-hidelive-other"},
+      "Hide Live alias must compose with skipintro and match exactly");
   std::ifstream input(argv[1], std::ios::binary);
   require(bool(input), "Read package");
   std::vector<uint8_t> original((std::istreambuf_iterator<char>(input)), {});

@@ -7,6 +7,8 @@
 #include <rex/rex_app.h>
 #include <rex/filesystem.h>
 #include <rex/cvar.h>
+#include <rex/logging.h>
+#include <stdexcept>
 #include "skip_intro.h"
 #include "display_settings.h"
 
@@ -33,15 +35,16 @@ class SnupiApp : public rex::ReXApp {
     if (rex::cvar::GetFlagSource("mnk_mode") == rex::cvar::Source::kDefault) {
       rex::cvar::SetFlagByName("mnk_mode", "true");
     }
-    // Direct launches should retain the full-game license used by start.bat.
-    if (rex::cvar::GetFlagSource("license_mask") == rex::cvar::Source::kDefault) {
-      rex::cvar::SetFlagByName("license_mask", "1");
-    }
+    // Fixed game setting, applied after config/CLI parsing on every launch.
+    if (!rex::cvar::SetFlagByName("license_mask", "1") ||
+        rex::cvar::GetFlagByName("license_mask") != "1")
+      throw std::runtime_error("Cannot initialize the fixed game license mask");
+    REXLOG_INFO("Game license_mask fixed to 1");
     config.gpu_plugin = "xenos";
   }
   // void OnLoadXexImage(std::string& xex_image) override {}
   void OnPostLoadXexImage() override {
-    snupi::startup::PrepareSkipIntro(*runtime(), game_data_root(), cache_root());
+    snupi::startup::PrepareStartupPackages(*runtime(), game_data_root(), cache_root());
     snupi::display::Initialize(*runtime(), *window(), app_context(), game_data_root(),
                                user_data_root(), cache_root());
   }

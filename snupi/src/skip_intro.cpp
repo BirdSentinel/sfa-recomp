@@ -1,5 +1,7 @@
 #include "skip_intro.h"
 #include "intro_package.h"
+#include "main_menu_package.h"
+#include <map>
 
 #include <fstream>
 #include <iterator>
@@ -13,6 +15,9 @@
 #include <rex/runtime.h>
 
 REXCVAR_DEFINE_BOOL(skipintro, false, "Game", "Skip startup logos and save disclaimer; keep FrontEnd_Intro")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+
+REXCVAR_DEFINE_BOOL(hidelive, false, "Game", "Hide Xbox LIVE, Leaderboards and Download Content from the main menu")
     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
 
 namespace {
@@ -37,69 +42,72 @@ bool GuestTextEquals(const uint8_t* base, uint32_t address, std::string_view tex
 }
 
 namespace snupi::startup {
-void PrepareSkipIntro(rex::Runtime& runtime, const std::filesystem::path& game_root,
-                     const std::filesystem::path& cache_root) {
-  if (!REXCVAR_GET(skipintro)) return;
-  const auto source = game_root / "Packages/UI/InitialLoadingInterface.pkg";
-  std::ifstream input(source, std::ios::binary);
-  if (!input) throw std::runtime_error("-skipintro: cannot read " + source.string());
-  std::vector<uint8_t> data((std::istreambuf_iterator<char>(input)), {});
-  PatchIntroPackage(data);
-  const auto folder = cache_root / "skipintro";
+void PrepareStartupPackages(rex::Runtime& runtime, const std::filesystem::path& game_root,
+                            const std::filesystem::path& cache_root) {
+  const bool skip = REXCVAR_GET(skipintro), hide = REXCVAR_GET(hidelive);
+  const auto source = game_root / "Packages/UI";
+  std::map<std::string, std::vector<uint8_t>> patched;
+  auto read = [&](const char* name) -> std::vector<uint8_t>& {
+    std::ifstream input(source / name, std::ios::binary);
+    if (!input) throw std::runtime_error("Cannot read startup package: " + std::string(name));
+    auto& data = patched[name];
+    data.assign(std::istreambuf_iterator<char>(input), {});
+    return data;
+  };
+  if (skip) PatchIntroPackage(read("InitialLoadingInterface.pkg"));
+  auto& frontend = read("FrontEnd.pkg");
+  PatchMainMenuReturnAnimation(frontend);
+  if (hide) PatchMainMenuPackage(frontend);
+  // Separate caches prevent a previous -hidelive launch from affecting a later
+  // normal or -skipintro-only launch, and let both options compose.
+  const auto folder = cache_root / (skip ? (hide ? "skipintro-hidelive" : "skipintro") :
+                                         (hide ? "hidelive" : "frontend"));
   std::filesystem::create_directories(folder);
-  const auto destination = folder / "InitialLoadingInterface.pkg";
-  // OpenFile resolves the parent then GetChild, so a file symlink is bypassed.
-  // Redirect the UI directory, retaining all its other packages as hard links
-  // (or copies when the cache resides on a different volume).
-  for (const auto& item : std::filesystem::directory_iterator(source.parent_path())) {
-    if (!item.is_regular_file() || item.path().extension() != ".pkg" ||
-        item.path().filename() == source.filename()) continue;
+  for (const auto& item : std::filesystem::directory_iterator(source)) {
+    if (!item.is_regular_file() || item.path().extension() != ".pkg") continue;
     const auto target = folder / item.path().filename();
-    std::error_code error;
-    if (std::filesystem::exists(target) && std::filesystem::equivalent(item.path(), target, error)) continue;
-    std::filesystem::remove(target);
-    std::filesystem::create_hard_link(item.path(), target, error);
-    if (error) std::filesystem::copy_file(item.path(), target);
+    auto patch = patched.find(item.path().filename().string());
+    if (patch != patched.end()) {
+      // Unlink before writing: a previous cache may contain a hard link to the
+      // original. Never modify game files through a cached hard link.
+      std::filesystem::remove(target);
+      std::ofstream output(target, std::ios::binary);
+      const auto& data = patch->second;
+      output.write(reinterpret_cast<const char*>(data.data()), data.size());
+      output.close();
+      if (!output) throw std::runtime_error("Cannot write cached startup package");
+    } else {
+      std::error_code error;
+      if (std::filesystem::exists(target) && std::filesystem::equivalent(item.path(), target, error)) continue;
+      std::filesystem::remove(target);
+      std::filesystem::create_hard_link(item.path(), target, error);
+      if (error) std::filesystem::copy_file(item.path(), target);
+    }
   }
-  std::ifstream cached(destination, std::ios::binary);
-  const std::vector<uint8_t> existing((std::istreambuf_iterator<char>(cached)), {});
-  cached.close();
-  if (existing != data) {
-    std::ofstream output(destination, std::ios::binary | std::ios::trunc);
-    output.write(reinterpret_cast<const char*>(data.data()), data.size());
-    output.close();
-    if (!output) throw std::runtime_error("-skipintro: cannot write cached intro package");
-  }
-
-  constexpr auto mount = "\\Device\\SnupiSkipIntro";
+  constexpr auto mount = "\\Device\\SnupiStartup";
   auto device = std::make_unique<rex::filesystem::HostPathDevice>(mount, folder, true);
-  if (!device->Initialize()) throw std::runtime_error("-skipintro: cannot mount intro package");
+  if (!device->Initialize()) throw std::runtime_error("Cannot mount startup packages");
   auto* vfs = runtime.file_system();
   vfs->RegisterDevice(std::move(device));
-  // Redirect the parent directory, including the game's actual OpenFile path.
-  vfs->RegisterSymbolicLink(
-      "\\Device\\Harddisk0\\Partition1\\Packages\\UI", mount);
-  auto* parent = vfs->ResolvePath("game:\\Packages\\UI");
-  const auto* entry = parent ? parent->GetChild("InitialLoadingInterface.pkg") : nullptr;
-  if (!entry || entry->device()->mount_path() != mount) {
-    throw std::runtime_error("-skipintro: intro package redirect failed");
+  vfs->RegisterSymbolicLink("\\Device\\Harddisk0\\Partition1\\Packages\\UI", mount);
+  for (const auto& [name, data] : patched) {
+    // Validate the actual game OpenFile route, not just ResolvePath.
+    rex::filesystem::File* file = nullptr;
+    rex::filesystem::FileAction action;
+    const auto status = vfs->OpenFile(nullptr, "D:\\Packages\\UI\\" + name,
+        rex::filesystem::FileDisposition::kOpen,
+        rex::filesystem::FileAccess::kGenericRead, false, true, &file, &action);
+    if (status != 0 || !file) throw std::runtime_error("Cannot open redirected startup package");
+    std::vector<uint8_t> actual(data.size());
+    size_t bytes_read = 0;
+    const auto read_status = file->ReadSync(actual, 0, &bytes_read);
+    file->Destroy();
+    if (read_status != 0 || bytes_read != data.size() || actual != data)
+      throw std::runtime_error("Game file-open route returned unpatched startup data");
   }
-  // Regression check using OpenFile, not ResolvePath: the old file-level link
-  // passed ResolvePath but was ignored by the game's actual file-open route.
-  rex::filesystem::File* file = nullptr;
-  rex::filesystem::FileAction action;
-  const auto status = vfs->OpenFile(nullptr, "D:\\Packages\\UI\\InitialLoadingInterface.pkg",
-      rex::filesystem::FileDisposition::kOpen,
-      rex::filesystem::FileAccess::kGenericRead, false, true, &file, &action);
-  if (status != 0 || !file) throw std::runtime_error("-skipintro: cannot open redirected package");
-  std::vector<uint8_t> actual(data.size());
-  size_t bytes_read = 0;
-  const auto read_status = file->ReadSync(actual, 0, &bytes_read);
-  file->Destroy();
-  if (read_status != 0 || bytes_read != data.size() || actual != data) {
-    throw std::runtime_error("-skipintro: game file-open route returned unpatched data");
-  }
-  REXLOG_INFO("Skip intro enabled: startup package redirected; Press Start input remains manual");
+  REXLOG_INFO("Main menu return animation fixed: Enlist Back uses native Load -> Default");
+  if (skip) REXLOG_INFO("Skip intro enabled: startup package redirected; Press Start input remains manual");
+  if (hide) REXLOG_INFO("Hide Live enabled: Xbox LIVE, Leaderboards and Download Content removed; initial selection is Enlist Now");
 }
 
 REX_EXTERN(__imp__sub_829085B0);
