@@ -1,5 +1,11 @@
 # Settings menu cleanup
 
+The current menu has seven visible rows: Music Volume, SFX Volume, Lock
+Framerate, Resolution, Display Mode, VSync, and Autosave. The obsolete save-device
+row is repurposed as VSync, with its old action replaced by the native selector.
+The cleanup script below is the first stage; `add_display_settings.py` builds
+the current menu on top of it.
+
 The installed `decomp/extracted/Packages/UI/FrontEnd.pkg` omits Download Gamer
 Pictures, Download Avatar Awards, and Select Save Device. Restart the game to
 reload this package. Autosave and the actual save system remain unchanged.

@@ -27,7 +27,8 @@ def refs(obj, key):
     return values[1:]
 
 
-for slot, button in enumerate([49792, 49782]):
+for slot, button in enumerate([49792, 49782, 49772]):
+    assert struct.unpack_from('>I', prop(button, 'm_buttonText'), 14)[0] == 0x7000 + slot
     assert integer(button, 'm_id') == 8 + slot
     assert integer(button, 'm_staticInterface') == integer(49802, 'm_staticInterface')
     assert button in refs(49633, 'm_aRenderList')
@@ -41,8 +42,10 @@ for slot, button in enumerate([49792, 49782]):
                integer(i, 'm_staticRefVar') == values]
     payload = prop(values, 'm_aVariable')
     count, = struct.unpack_from('>I', payload, 14)
-    assert count == (32 if slot == 0 else 3)
-    assert struct.unpack_from('>I', payload, 18)[0] == (0x7100 if slot == 0 else 0x7200)
+    assert count == [32, 3, 2][slot]
+    assert struct.unpack_from('>I', payload, 18)[0] == [0x7100, 0x7200, 0x7400][slot]
+    if slot == 2:
+        assert struct.unpack_from('>2I', payload, 18) == (0x7400, 0x7401)
     assert any(integer(i, 'm_variable') == 49658 and
                struct.unpack('>f', prop(i, 'm_ComparisonValue'))[0] == 8 + slot
                for i in refs(50895, 'm_aConditions') if any(
@@ -58,9 +61,9 @@ for slot, button in enumerate([49792, 49782]):
         assert struct.unpack('>f', prop(action, 'm_NewValue'))[0] == 1
 
 render = refs(49633, 'm_aRenderList')
-assert 49772 not in render
+assert 49772 in render  # Repurposed VSync row, not Select Save Device.
 chain = refs(49694, 'm_aChildren')
-assert len(chain) == 7 and integer(49694, 'm_vertical') == 6  # existing hidden UI-scale row
+assert len(chain) == 8 and integer(49694, 'm_vertical') == 7  # existing hidden UI-scale row
 for j, button in enumerate(chain):
     assert integer(button, 'm_upElement') == chain[j - 1]
     assert integer(button, 'm_downElement') == chain[(j + 1) % len(chain)]

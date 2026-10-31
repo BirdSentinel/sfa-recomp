@@ -1,6 +1,7 @@
 #include "display_settings.h"
 #include "display_guest.h"
 #include "frame_limiter.h"
+#include "vsync_settings.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -33,6 +34,7 @@ REXCVAR_DEFINE_BOOL(display_settings_selftest, false, "Debug",
 namespace {
 constexpr uint32_t kResolutionStrings = 0x7100, kModeStrings = 0x7200;
 constexpr uint32_t kFramerateStrings = 0x7300;
+constexpr uint32_t kVsyncStrings = 0x7400;
 constexpr int kMaxResolutions = 32;
 struct Resolution { int width, height; };
 std::vector<Resolution> resolutions;  // Immutable after initialization.
@@ -48,6 +50,7 @@ std::atomic<int> selected_resolution = 0, selected_mode = 0;
 int desktop_index = 0;
 
 int ChoiceIndex(uint32_t tag) {
+  if (tag == kVsyncStrings) return snupi::vsync::SelectedIndex();
   if (tag == kFramerateStrings) return snupi::framerate::SelectedIndex();
   return tag == kResolutionStrings ? selected_resolution.load() : selected_mode.load();
 }
@@ -168,6 +171,11 @@ void Save() {
 }
 
 int Change(uint32_t tag, int index) {
+  if (tag == kVsyncStrings) {
+    int result = snupi::vsync::SelectedIndex();
+    context->CallInUIThreadSynchronous([&] { result = snupi::vsync::Select(index); });
+    return result;
+  }
   if (tag == kFramerateStrings) return snupi::framerate::Select(index);
   int result = tag == kResolutionStrings ? selected_resolution.load() : selected_mode.load();
   context->CallInUIThreadSynchronous([&] {
@@ -198,7 +206,9 @@ int Change(uint32_t tag, int index) {
 void PrepareLocalization(rex::Runtime& runtime, const std::filesystem::path& game_root,
                          const std::filesystem::path& cache_root) {
   std::string entries = "\r\n[PC Display]\r\nResolution[28672]=\"Resolution\"\r\n"
-                        "DisplayMode[28673]=\"Display Mode\"\r\n";
+                        "DisplayMode[28673]=\"Display Mode\"\r\n"
+                        "VSync[28674]=\"VSync\"\r\n"
+                        "VSyncOff[29696]=\"Off\"\r\nVSyncOn[29697]=\"On\"\r\n";
   for (int i = 0; i < kMaxResolutions; ++i) {
     const auto size = resolutions[std::min(i, int(resolutions.size()) - 1)];
     entries += "Resolution" + std::to_string(i) + "[" + std::to_string(kResolutionStrings + i) +
@@ -294,6 +304,7 @@ void Initialize(rex::Runtime& runtime, rex::ui::Window& app_window,
   snupi::framerate::Initialize(user_root);
   REXLOG_INFO("Preparing native display settings (UI thread: {})", context->IsInUIThread());
   if (!context->CallInUIThreadSynchronous([&] {
+    snupi::vsync::Initialize(user_root);
     if (auto* graphics = runtime.graphics_system())
       if (auto* presenter = graphics->presenter())
         snupi::framerate::AttachPresenter(*presenter);

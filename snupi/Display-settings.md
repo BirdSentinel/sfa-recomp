@@ -1,11 +1,20 @@
 # Display settings
 
-The game's Help & Options → Settings menu includes **Resolution** and
-**Display Mode**, using its existing selector rows, arrows, value boxes and sounds.
+The game's Help & Options → Settings menu includes **Resolution**, **Display
+Mode**, and **VSync**, using its existing selector rows, arrows, value boxes and sounds.
 Use the controller's normal left/right menu controls, or their keyboard mappings
 (A/D for the left stick; Shift+Left/Right for the D-pad). Changes apply immediately
 and are saved in `saves/display-settings.txt` beside the game.
 Space / controller A confirms and closes Settings, just like the original rows.
+
+**VSync** has separate Off/On choices using the same native controls. It applies
+immediately and persists in `saves/vsync.txt` (Off by default). On uses DXGI
+Present interval 1 without tearing; Off uses interval 0 and permits tearing
+when supported. This controls actual host presentation, not the SDK's separate
+Xbox vblank timing flag. The selected FPS cap remains independent; VSync can
+limit visible frames to the monitor refresh rate even if a higher cap is chosen.
+`--vsync_selftest=true` exercises live switching, persistence and FPS independence
+and restores the original settings; use a separate test user-data directory.
 
 - Windowed: the selected resolution is the window's client size.
 - Borderless: fills the desktop at its native resolution. The resolution row

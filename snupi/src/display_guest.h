@@ -14,6 +14,6 @@ uint32_t VariableTag(ReadWord read, uint32_t object) {
   if (!data || !count) return 0;
   const auto id = read(data + 36);
   return (id == 0x7100 && count == 32) || (id == 0x7200 && count == 3) ||
-                 (id == 0x7300 && count == 9) ? id : 0;
+                 (id == 0x7300 && count == 9) || (id == 0x7400 && count == 2) ? id : 0;
 }
 }

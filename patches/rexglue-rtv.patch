@@ -269,6 +269,43 @@ index dd321a5..a848d39 100644
  
    // Create the buffer for reinterpreting EDRAM contents.
    uint32_t edram_buffer_size =
+diff --git a/src/graphics/graphics_system.cpp b/src/graphics/graphics_system.cpp
+index 8f2fcb0..ad326ef 100644
+--- a/src/graphics/graphics_system.cpp
++++ b/src/graphics/graphics_system.cpp
+@@ -30,6 +30,9 @@
+ #include <rex/ui/graphics_provider.h>
+ #include <rex/ui/window.h>
+ #include <rex/ui/windowed_app_context.h>
++#if defined(SNUPI_RTV_ONLY)
++#include "snupi_presenter.h"
++#endif
+ 
+ REXCVAR_DEFINE_STRING(swap_post_effect, "none", "GPU", "Swap post effect: none, fxaa, fxaa_extreme")
+     .allowed({"none", "fxaa", "fxaa_extreme"})
+@@ -99,13 +102,19 @@ X_STATUS GraphicsSystem::SetupPresentation(ui::WindowedAppContext* app_context)
+   auto loss_cb = [this](bool is_responsible, bool statically_from_ui_thread) {
+     OnHostGpuLossFromAnyThread(is_responsible);
+   };
++  auto create_presenter = [this, loss_cb]() {
++#if defined(SNUPI_RTV_ONLY)
++    presenter_ = snupi::renderer::CreatePresenter(*provider_, loss_cb);
++#else
++    presenter_ = provider_->CreatePresenter(loss_cb);
++#endif
++  };
+   if (app_context_) {
+     // Presenter creation must happen on the UI thread.
+-    app_context_->CallInUIThreadSynchronous(
+-        [this, loss_cb]() { presenter_ = provider_->CreatePresenter(loss_cb); });
++    app_context_->CallInUIThreadSynchronous(create_presenter);
+   } else {
+     // Offscreen path (e.g. capturing guest output without a window).
+-    presenter_ = provider_->CreatePresenter(loss_cb);
++    create_presenter();
+   }
+ 
+   if (!presenter_) {
 diff --git a/src/graphics/pipeline/shader/dxbc_translator.cpp b/src/graphics/pipeline/shader/dxbc_translator.cpp
 index 2c31a0e..80ae6c7 100644
 --- a/src/graphics/pipeline/shader/dxbc_translator.cpp
@@ -429,3 +466,45 @@ index a7d508a..abcb084 100644
      }
      return;
    }
+diff --git a/src/ui/d3d12/d3d12_presenter.cpp b/src/ui/d3d12/d3d12_presenter.cpp
+index 306118e..6770a95 100644
+--- a/src/ui/d3d12/d3d12_presenter.cpp
++++ b/src/ui/d3d12/d3d12_presenter.cpp
+@@ -30,8 +30,14 @@
+ #include <ffx_api/ffx_upscale.h>
+ #endif
+ 
++#if defined(SNUPI_RTV_ONLY)
++#include "presentation_policy.h"
++REXCVAR_DECLARE(bool, d3d12_allow_variable_refresh_rate_and_tearing);
++REXCVAR_DEFINE_BOOL(host_vsync, false, "GPU/D3D12", "Synchronize presentation with the monitor");
++#else
+ REXCVAR_DEFINE_BOOL(d3d12_allow_variable_refresh_rate_and_tearing, true, "UI/D3D12",
+                     "Allow variable refresh rate and tearing");
++#endif
+ 
+ namespace rex::ui::d3d12 {
+ 
+@@ -1155,9 +1161,22 @@ Presenter::PaintResult D3D12Presenter::PaintAndPresentImpl(bool execute_ui_drawe
+   // fullscreen is ever used in, the allow tearing flag must not be passed in
+   // fullscreen, but DXGI fullscreen is largely unneeded with the flip
+   // presentation model used in Direct3D 12).
++#if defined(SNUPI_RTV_ONLY)
++  const bool synchronized = REXCVAR_GET(host_vsync);
++  const auto policy = snupi::renderer::Policy(synchronized, paint_context_.swap_chain_allows_tearing);
++  // This is the actual swapchain path, including all menu/UI repaints.
++  static thread_local int last_vsync = -1;
++  if (last_vsync != int(synchronized)) {
++    REXLOG_INFO("DXGI VSync {}: Present interval={}, flags={}",
++                synchronized ? "On" : "Off", policy.interval, policy.flags);
++    last_vsync = int(synchronized);
++  }
++  HRESULT present_result = paint_context_.swap_chain->Present(policy.interval, policy.flags);
++#else
+   HRESULT present_result = paint_context_.swap_chain->Present(
+       0, DXGI_PRESENT_RESTART |
+              (paint_context_.swap_chain_allows_tearing ? DXGI_PRESENT_ALLOW_TEARING : 0));
++#endif
+   // Even if presentation has failed, work might have been enqueued anyway
+   // internally before the failure according to Jesse Natalie from the DirectX
+   // Discord server.

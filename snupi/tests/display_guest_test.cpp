@@ -21,6 +21,11 @@ int main() {
   words[object + 372] = 9;
   words[data + 36] = 0x7300;
   check(0x7300);
+  words[object + 372] = 2;
+  words[data + 36] = 0x7400;
+  check(0x7400);
+  words[object + 372] = 3;
+  check(0);  // VSync must have exactly Off and On.
   words[data + 36] = 0x34;  // original on/off array
   check(0);
   words[data + 36] = 0x7100;  // wrong count must not identify another array

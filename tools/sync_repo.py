@@ -38,7 +38,8 @@ def collect():
                  'generated/rexglue.cmake', 'resources/snupi.rc']:
         add('snupi/' + name)
     for name in ['CMakeLists.txt', 'depth_bias_gpu_test.cpp',
-                 'geometry_depth_test.cpp', 'viewport_depth_test.cpp', 'rtv_geometry_depth.h']:
+                 'geometry_depth_test.cpp', 'viewport_depth_test.cpp', 'rtv_geometry_depth.h',
+                 'snupi_presenter.cpp', 'snupi_presenter.h', 'presentation_policy.h']:
         add('snupi/renderer/' + name)
     add('tools/sync_repo.py')
     add('tools/prepare_sdk.ps1')
@@ -61,6 +62,11 @@ def collect():
     if any(not name.startswith(('include/', 'src/')) for name in changed):
         raise RuntimeError('SDK changes outside include/src need export review')
     files['patches/rexglue-rtv.patch'] = patch
+    # The user may maintain a repository landing page directly in the mirror.
+    # Preserve it verbatim; the generated build guide remains README.txt.
+    readme = DEST / 'README.md'
+    if readme.is_file():
+        files['README.md'] = readme.read_bytes()
     return files
 
 

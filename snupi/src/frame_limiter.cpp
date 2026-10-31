@@ -1,5 +1,6 @@
 #include "frame_limiter.h"
 #include "frame_wait.h"
+#include "vsync_settings.h"
 #include <windows.h>
 #include <atomic>
 #include <chrono>
@@ -77,7 +78,10 @@ void Pace(const char* path) {
 namespace {
 class PresentationPacer final : public rex::ui::UIDrawer {
  public:
-  void Draw(rex::ui::UIDrawContext&) override { Pace("host"); }
+  void Draw(rex::ui::UIDrawContext&) override {
+    snupi::vsync::SelfTestTick();
+    Pace("host");
+  }
 };
 // The presenter stores a non-owning pointer; keep it alive through shutdown.
 PresentationPacer presentation_pacer;

@@ -17,6 +17,7 @@ set(SNUPI_SOURCES
     src/skip_intro.cpp
     src/display_settings.cpp
     src/frame_limiter.cpp
+    src/vsync_settings.cpp
 )
 
 if(WIN32)
@@ -56,6 +57,9 @@ if(SNUPI_BUILD_STARTUP_TESTS)
   add_executable(snupi_frame_limiter_test tests/frame_limiter_test.cpp)
   target_include_directories(snupi_frame_limiter_test PRIVATE src)
   add_test(NAME snupi_frame_limiter COMMAND snupi_frame_limiter_test)
+  add_executable(snupi_presentation_policy_test tests/presentation_policy_test.cpp)
+  target_include_directories(snupi_presentation_policy_test PRIVATE renderer)
+  add_test(NAME snupi_presentation_policy COMMAND snupi_presentation_policy_test)
   target_include_directories(snupi_startup_test PRIVATE src)
   add_test(NAME snupi_startup COMMAND snupi_startup_test
     "${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extracted/Packages/UI/InitialLoadingInterface.pkg"

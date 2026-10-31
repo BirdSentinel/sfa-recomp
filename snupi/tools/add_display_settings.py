@@ -109,7 +109,7 @@ class Editor:
 def patch(data):
     e = Editor(remove_legacy(data))
     root, manager, framerate, autosave = 49633, 49694, 49802, 49706
-    buttons = [49792, 49782]
+    buttons = [49792, 49782, 49772]  # Resolution, Display Mode, VSync
     all_vars, texts = [], []
     for slot, button in enumerate(buttons):
         # Keep native interface ownership. Distinct FName instances also avoid
@@ -120,7 +120,7 @@ def patch(data):
             for blob in e.objects[obj][:2]:
                 struct.pack_into('>H', blob, 2, 40 + slot)
         all_vars.extend([proxy, values])
-        locbase, count = (0x7100, 32) if slot == 0 else (0x7200, 3)
+        locbase, count = [(0x7100, 32), (0x7200, 3), (0x7400, 2)][slot]
         value = bytearray(e.get(values, 'm_aVariable')[:14])
         struct.pack_into('>I', value, 8, 4 + count * 4)
         e.set(values, 'm_aVariable', value + array(list(range(locbase, locbase + count))) + bytes(4))
@@ -173,7 +173,7 @@ def patch(data):
         e.set(button, 'm_upElement', word(chain[j - 1]))
         e.set(button, 'm_downElement', word(chain[(j + 1) % len(chain)]))
     e.set(manager, 'm_aChildren', array(chain))
-    e.set(manager, 'm_vertical', word(6))
+    e.set(manager, 'm_vertical', word(7))
     e.append_refs(root, 'm_aRenderList', buttons + texts)
     e.append_refs(root, 'm_aVariables', all_vars)
     # New selectors use left/right. Do not show the obsolete Download footer.
@@ -182,7 +182,7 @@ def patch(data):
     p = Package(result)
     prop = lambda i, key: next(v for n, h, v in p.properties(i) if n == key)
     assert prop(manager, 'm_aChildren') == array(chain)
-    assert 49772 not in struct.unpack('>' + 'I' * (len(prop(root, 'm_aRenderList')) // 4), prop(root, 'm_aRenderList'))[1:]
+    assert 49772 in struct.unpack('>' + 'I' * (len(prop(root, 'm_aRenderList')) // 4), prop(root, 'm_aRenderList'))[1:]
     for j, button in enumerate(chain):
         assert prop(button, 'm_upElement') == word(chain[j - 1])
         assert prop(button, 'm_downElement') == word(chain[(j + 1) % len(chain)])
@@ -200,4 +200,4 @@ if __name__ == '__main__':
         backup.write_bytes(args.package.read_bytes())
     result = patch(backup.read_bytes())
     args.package.write_bytes(result)
-    print('Installed native Resolution and Display Mode rows; package and navigation validation passed.')
+    print('Installed native Resolution, Display Mode and VSync rows; package and navigation validation passed.')

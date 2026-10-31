@@ -5,6 +5,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(rexglue CONFIG REQUIRED)
 set(RENDERER_SOURCE "${CMAKE_CURRENT_LIST_DIR}/../../tools/rexglue-sdk-terrain" CACHE PATH "Patched SDK v0.10.0 source")
 add_library(snupi_xenos SHARED
+  snupi_presenter.cpp
   ${RENDERER_SOURCE}/src/graphics/plugin_main.cpp
   ${RENDERER_SOURCE}/src/graphics/flags.cpp
   ${RENDERER_SOURCE}/src/graphics/register_file.cpp
@@ -42,7 +43,7 @@ add_library(snupi_xenos SHARED
   ${RENDERER_SOURCE}/src/graphics/d3d12/pipeline_cache.cpp
 )
 set_target_properties(snupi_xenos PROPERTIES OUTPUT_NAME rexgpu-xenos DEBUG_POSTFIX d RELWITHDEBINFO_POSTFIX rd)
-target_include_directories(snupi_xenos BEFORE PRIVATE "${RENDERER_SOURCE}/include" "${RENDERER_SOURCE}" "${RENDERER_SOURCE}/thirdparty/renderdoc")
+target_include_directories(snupi_xenos BEFORE PRIVATE "${RENDERER_SOURCE}/include" "${RENDERER_SOURCE}" "${RENDERER_SOURCE}/src" "${RENDERER_SOURCE}/thirdparty/renderdoc")
 target_link_libraries(snupi_xenos PRIVATE rex::runtime rex::xxhash d3d12 dxgi dxguid)
 target_compile_definitions(snupi_xenos PRIVATE REX_PLATFORM_WINDOWS=1 REX_HAS_D3D12=1 REX_HAS_VULKAN=0 SNUPI_RTV_ONLY=1)
 target_compile_options(snupi_xenos PRIVATE -fno-strict-aliasing -ffp-model=strict -fno-char8_t -Wno-unused-variable)

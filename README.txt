@@ -34,7 +34,8 @@ Preparing a fresh checkout (PowerShell)
      powershell -ExecutionPolicy Bypass -File tools/prepare_sdk.ps1
 
    This is separate from the installed SDK package: the game links the SDK
-   runtime but always compiles its own RTV-only graphics plugin from source.
+   runtime but always compiles its own RTV-only graphics plugin and presenter
+   from source. The presenter implements the native menu's live VSync toggle.
 
 3. Install the local icon conversion dependency and prepare the game:
 
