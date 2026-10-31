@@ -1,0 +1,431 @@
+diff --git a/include/rex/graphics/d3d12/pipeline_cache.h b/include/rex/graphics/d3d12/pipeline_cache.h
+index 7a9d6a2..fdd9f08 100644
+--- a/include/rex/graphics/d3d12/pipeline_cache.h
++++ b/include/rex/graphics/d3d12/pipeline_cache.h
+@@ -206,6 +206,7 @@ class PipelineCache {
+     uint32_t depth_write : 1;                         // 18
+     uint32_t stencil_enable : 1;                      // 19
+     uint32_t stencil_read_mask : 8;                   // 27
++    uint32_t depth_bias_in_pixel_shader : 1;          // 28
+ 
+     uint32_t stencil_write_mask : 8;                   // 8
+     xenos::StencilOp stencil_front_fail_op : 3;        // 11
+@@ -219,7 +220,7 @@ class PipelineCache {
+ 
+     PipelineRenderTarget render_targets[xenos::kMaxColorRenderTargets];
+ 
+-    static constexpr uint32_t kVersion = 0x20210425;
++    static constexpr uint32_t kVersion = 0x20261002;
+   });
+ 
+   REXPACKEDSTRUCT(PipelineStoredDescription, {
+@@ -341,6 +342,8 @@ class PipelineCache {
+   // Empty depth-only pixel shader for writing to depth buffer via ROV when no
+   // Xenos pixel shader provided.
+   std::vector<uint8_t> depth_only_pixel_shader_;
++  // Unconverted, truncating float24, and rounded float24 depth, respectively.
++  std::array<std::vector<uint8_t>, 3> depth_bias_pixel_shaders_;
+ 
+   struct Pipeline {
+     // nullptr if creation has failed.
+diff --git a/include/rex/graphics/pipeline/shader/dxbc_translator.h b/include/rex/graphics/pipeline/shader/dxbc_translator.h
+index 3b0fd61..7c0c431 100644
+--- a/include/rex/graphics/pipeline/shader/dxbc_translator.h
++++ b/include/rex/graphics/pipeline/shader/dxbc_translator.h
+@@ -111,7 +111,7 @@ class DxbcShaderTranslator : public ShaderTranslator {
+     // If anything in this is structure is changed in a way not compatible with
+     // the previous layout, invalidate the pipeline storages by increasing this
+     // version number (0xYYYYMMDD)!
+-    static constexpr uint32_t kVersion = 0x20260226;
++    static constexpr uint32_t kVersion = 0x20261002;
+ 
+     enum class DepthStencilMode : uint32_t {
+       kNoModifiers,
+@@ -176,6 +176,8 @@ class DxbcShaderTranslator : public ShaderTranslator {
+       uint32_t dynamic_addressable_register_count : 8;
+       // Non-ROV - depth / stencil output mode.
+       DepthStencilMode depth_stencil_mode : 2;
++      // Apply the guest's absolute polygon offset before depth conversion.
++      uint32_t depth_bias : 1;
+     } pixel;
+ 
+     explicit Modification(uint64_t modification_value = 0) : value(modification_value) {
+@@ -513,7 +515,7 @@ class DxbcShaderTranslator : public ShaderTranslator {
+ 
+   // Creates a special pixel shader without color outputs - this resets the
+   // state of the translator.
+-  std::vector<uint8_t> CreateDepthOnlyPixelShader();
++  std::vector<uint8_t> CreateDepthOnlyPixelShader(uint64_t modification = 0);
+ 
+   // Common functions useful not only for the translator, but also for render
+   // target reinterpretation.
+@@ -651,7 +653,8 @@ class DxbcShaderTranslator : public ShaderTranslator {
+     return is_pixel_shader() &&
+            GetDxbcShaderModification().pixel.depth_stencil_mode ==
+                Modification::DepthStencilMode::kEarlyHint &&
+-           !edram_rov_used_ && current_shader().implicit_early_z_write_allowed();
++           !edram_rov_used_ && !DSV_IsApplyingDepthBias() &&
++           current_shader().implicit_early_z_write_allowed();
+   }
+ 
+   uint32_t GetModificationInterpolatorMask() const {
+@@ -676,7 +679,8 @@ class DxbcShaderTranslator : public ShaderTranslator {
+ 
+   bool IsSampleRate() const {
+     assert_true(is_pixel_shader());
+-    return DSV_IsWritingFloat24Depth() && !current_shader().writes_depth();
++    return (DSV_IsWritingFloat24Depth() || DSV_IsApplyingDepthBias()) &&
++           !current_shader().writes_depth();
+   }
+   bool IsDepthStencilSystemTempUsed() const {
+     // See system_temp_depth_stencil_ documentation for explanation of cases.
+@@ -684,6 +688,9 @@ class DxbcShaderTranslator : public ShaderTranslator {
+       // Needed for all cases (early, late, late with oDepth).
+       return true;
+     }
++    if (DSV_IsApplyingDepthBias()) {
++      return true;
++    }
+     if (current_shader().writes_depth()) {
+       // With host render targets, the depth format may be float24, in this
+       // case, need to multiply it by 0.5 since 0...1 of the guest is stored as
+@@ -693,6 +700,11 @@ class DxbcShaderTranslator : public ShaderTranslator {
+     }
+     return false;
+   }
++  // Apply polygon offset to interpolated depth, never to a guest depth export.
++  bool DSV_IsApplyingDepthBias() const {
++    return !edram_rov_used_ && GetDxbcShaderModification().pixel.depth_bias &&
++           !current_shader().writes_depth();
++  }
+   // Whether the current non-ROV pixel shader should convert the depth to 20e4.
+   bool DSV_IsWritingFloat24Depth() const {
+     if (edram_rov_used_) {
+diff --git a/src/graphics/d3d12/command_processor.cpp b/src/graphics/d3d12/command_processor.cpp
+index 19874a5..ab0e501 100644
+--- a/src/graphics/d3d12/command_processor.cpp
++++ b/src/graphics/d3d12/command_processor.cpp
+@@ -3913,11 +3913,7 @@ void D3D12CommandProcessor::UpdateSystemConstantValues(
+     }
+   }
+ 
+-  if (edram_rov_used) {
+-    uint32_t depth_base_dwords_scaled = rb_depth_info.depth_base * edram_tile_dwords_scaled;
+-    dirty |= system_constants_.edram_depth_base_dwords_scaled != depth_base_dwords_scaled;
+-    system_constants_.edram_depth_base_dwords_scaled = depth_base_dwords_scaled;
+-
++  {
+     // For non-polygons, front polygon offset is used, and it's enabled if
+     // POLY_OFFSET_PARA_ENABLED is set, for polygons, separate front and back
+     // are used.
+@@ -3948,6 +3944,12 @@ void D3D12CommandProcessor::UpdateSystemConstantValues(
+                                      std::max(draw_resolution_scale_x, draw_resolution_scale_y);
+     poly_offset_front_scale *= poly_offset_scale_factor;
+     poly_offset_back_scale *= poly_offset_scale_factor;
++    // RTV stores guest D24FS8 [0, 2) in host [0, 1). The slope is already
++    // expressed in host depth units; only the absolute constant needs scaling.
++    if (!edram_rov_used && rb_depth_info.depth_format == xenos::DepthRenderTargetFormat::kD24FS8) {
++      poly_offset_front_offset *= 0.5f;
++      poly_offset_back_offset *= 0.5f;
++    }
+     dirty |= system_constants_.edram_poly_offset_front_scale != poly_offset_front_scale;
+     system_constants_.edram_poly_offset_front_scale = poly_offset_front_scale;
+     dirty |= system_constants_.edram_poly_offset_front_offset != poly_offset_front_offset;
+@@ -3956,6 +3958,12 @@ void D3D12CommandProcessor::UpdateSystemConstantValues(
+     system_constants_.edram_poly_offset_back_scale = poly_offset_back_scale;
+     dirty |= system_constants_.edram_poly_offset_back_offset != poly_offset_back_offset;
+     system_constants_.edram_poly_offset_back_offset = poly_offset_back_offset;
++  }
++
++  if (edram_rov_used) {
++    uint32_t depth_base_dwords_scaled = rb_depth_info.depth_base * edram_tile_dwords_scaled;
++    dirty |= system_constants_.edram_depth_base_dwords_scaled != depth_base_dwords_scaled;
++    system_constants_.edram_depth_base_dwords_scaled = depth_base_dwords_scaled;
+ 
+     if (depth_stencil_enabled && normalized_depth_control.stencil_enable) {
+       dirty |= system_constants_.edram_stencil_front_reference != rb_stencilrefmask.stencilref;
+diff --git a/src/graphics/d3d12/pipeline_cache.cpp b/src/graphics/d3d12/pipeline_cache.cpp
+index 8e6b854..d6d71df 100644
+--- a/src/graphics/d3d12/pipeline_cache.cpp
++++ b/src/graphics/d3d12/pipeline_cache.cpp
+@@ -103,6 +103,15 @@ PipelineCache::PipelineCache(D3D12CommandProcessor& command_processor,
+ 
+   if (edram_rov_used) {
+     depth_only_pixel_shader_ = std::move(shader_translator_->CreateDepthOnlyPixelShader());
++  } else {
++    using Mode = DxbcShaderTranslator::Modification::DepthStencilMode;
++    const Mode modes[] = {Mode::kNoModifiers, Mode::kFloat24Truncating, Mode::kFloat24Rounding};
++    for (size_t i = 0; i < depth_bias_pixel_shaders_.size(); ++i) {
++      DxbcShaderTranslator::Modification modification;
++      modification.pixel.depth_bias = 1;
++      modification.pixel.depth_stencil_mode = modes[i];
++      depth_bias_pixel_shaders_[i] = shader_translator_->CreateDepthOnlyPixelShader(modification.value);
++    }
+   }
+ }
+ 
+@@ -875,6 +884,12 @@ DxbcShaderTranslator::Modification PipelineCache::GetCurrentPixelShaderModificat
+ 
+   if (render_target_cache_.GetPath() == RenderTargetCache::Path::kHostRenderTargets) {
+     using DepthStencilMode = DxbcShaderTranslator::Modification::DepthStencilMode;
++    float bias_scale, bias_offset;
++    draw_util::GetPreferredFacePolygonOffset(regs, draw_util::IsPrimitivePolygonal(regs),
++                                             bias_scale, bias_offset);
++    modification.pixel.depth_bias = normalized_depth_control.z_enable && !shader.writes_depth() &&
++        regs.Get<reg::RB_DEPTH_INFO>().depth_format == xenos::DepthRenderTargetFormat::kD24FS8 &&
++        (bias_scale != 0.0f || bias_offset != 0.0f);
+     if (render_target_cache_.depth_float24_convert_in_pixel_shader() &&
+         normalized_depth_control.z_enable &&
+         regs.Get<reg::RB_DEPTH_INFO>().depth_format == xenos::DepthRenderTargetFormat::kD24FS8) {
+@@ -882,7 +897,7 @@ DxbcShaderTranslator::Modification PipelineCache::GetCurrentPixelShaderModificat
+                                                   ? DepthStencilMode::kFloat24Rounding
+                                                   : DepthStencilMode::kFloat24Truncating;
+     } else {
+-      if (shader.implicit_early_z_write_allowed() &&
++      if (!modification.pixel.depth_bias && shader.implicit_early_z_write_allowed() &&
+           (!shader.writes_color_target(0) ||
+            !draw_util::DoesCoverageDependOnAlpha(regs.Get<reg::RB_COLORCONTROL>()))) {
+         modification.pixel.depth_stencil_mode = DepthStencilMode::kEarlyHint;
+@@ -1424,6 +1439,10 @@ bool PipelineCache::GetCurrentStateDescription(
+         regs.Get<reg::RB_DEPTH_INFO>().depth_format, polygon_offset);
+     description_out.depth_bias_slope_scaled =
+         polygon_offset_scale * xenos::kPolygonOffsetScaleSubpixelUnit;
++    description_out.depth_bias_in_pixel_shader = normalized_depth_control.z_enable &&
++        regs.Get<reg::RB_DEPTH_INFO>().depth_format == xenos::DepthRenderTargetFormat::kD24FS8 &&
++        (polygon_offset != 0.0f || polygon_offset_scale != 0.0f) &&
++        (!pixel_shader || DxbcShaderTranslator::Modification(pixel_shader->modification()).pixel.depth_bias);
+   }
+   if (tessellated && REXCVAR_GET(d3d12_tessellation_wireframe)) {
+     description_out.fill_mode_wireframe = 1;
+@@ -2839,7 +2858,13 @@ ID3D12PipelineState* PipelineCache::CreateD3D12Pipeline(
+     state_desc.PS.pShaderBytecode = depth_only_pixel_shader_.data();
+     state_desc.PS.BytecodeLength = depth_only_pixel_shader_.size();
+   } else {
+-    if (render_target_cache_.depth_float24_convert_in_pixel_shader() &&
++    if (description.depth_bias_in_pixel_shader) {
++      size_t shader_index = render_target_cache_.depth_float24_convert_in_pixel_shader()
++                                ? (render_target_cache_.depth_float24_round() ? 2 : 1) : 0;
++      const auto& bytecode = depth_bias_pixel_shaders_[shader_index];
++      state_desc.PS.pShaderBytecode = bytecode.data();
++      state_desc.PS.BytecodeLength = bytecode.size();
++    } else if (render_target_cache_.depth_float24_convert_in_pixel_shader() &&
+         (description.depth_func != xenos::CompareFunction::kAlways || description.depth_write) &&
+         description.depth_format == xenos::DepthRenderTargetFormat::kD24FS8) {
+       if (render_target_cache_.depth_float24_round()) {
+@@ -2877,14 +2902,14 @@ ID3D12PipelineState* PipelineCache::CreateD3D12Pipeline(
+   }
+   state_desc.RasterizerState.FrontCounterClockwise =
+       description.front_counter_clockwise ? TRUE : FALSE;
+-  state_desc.RasterizerState.DepthBias = description.depth_bias;
++  state_desc.RasterizerState.DepthBias = description.depth_bias_in_pixel_shader ? 0 : description.depth_bias;
+   state_desc.RasterizerState.DepthBiasClamp = 0.0f;
+   // With non-square resolution scaling, make sure the worst-case impact is
+   // reverted (slope only along the scaled axis), thus max. More bias is better
+   // than less bias, because less bias means Z fighting with the background is
+   // more likely.
+   state_desc.RasterizerState.SlopeScaledDepthBias =
+-      description.depth_bias_slope_scaled *
++      (description.depth_bias_in_pixel_shader ? 0.0f : description.depth_bias_slope_scaled) *
+       float(std::max(render_target_cache_.draw_resolution_scale_x(),
+                      render_target_cache_.draw_resolution_scale_y()));
+   state_desc.RasterizerState.DepthClipEnable = description.depth_clip ? TRUE : FALSE;
+diff --git a/src/graphics/d3d12/render_target_cache.cpp b/src/graphics/d3d12/render_target_cache.cpp
+index dd321a5..a848d39 100644
+--- a/src/graphics/d3d12/render_target_cache.cpp
++++ b/src/graphics/d3d12/render_target_cache.cpp
+@@ -41,9 +41,16 @@
+ REXCVAR_DEFINE_BOOL(native_stencil_value_output_d3d12_intel, false, "GPU/D3D12",
+                     "Native stencil value output for Intel D3D12");
+ 
++#if defined(SNUPI_RTV_ONLY)
++REXCVAR_DEFINE_STRING(render_target_path_d3d12, "rtv", "GPU/D3D12",
++                      "Snoopy uses DirectX 12 RTV exclusively")
++    .allowed({"rtv"})
++    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
++#else
+ REXCVAR_DEFINE_STRING(render_target_path_d3d12, "", "GPU/D3D12",
+                       "D3D12 render target implementation path")
+     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
++#endif
+ 
+ REXCVAR_DEFINE_BOOL(native_stencil_value_output, true, "GPU", "Enable native stencil value output");
+ 
+@@ -173,6 +180,10 @@ bool D3D12RenderTargetCache::Initialize() {
+   const ui::d3d12::D3D12Provider& provider = command_processor_.GetD3D12Provider();
+   ID3D12Device* device = provider.GetDevice();
+ 
++#if defined(SNUPI_RTV_ONLY)
++  path_ = Path::kHostRenderTargets;
++  REXGPU_INFO("Snoopy renderer: DirectX 12 RTV only");
++#else
+   if (REXCVAR_GET(render_target_path_d3d12) == "rtv") {
+     path_ = Path::kHostRenderTargets;
+   } else if (REXCVAR_GET(render_target_path_d3d12) == "rov") {
+@@ -201,6 +212,7 @@ bool D3D12RenderTargetCache::Initialize() {
+   if (path_ == Path::kPixelShaderInterlock && !provider.AreRasterizerOrderedViewsSupported()) {
+     path_ = Path::kHostRenderTargets;
+   }
++#endif
+ 
+   // Create the buffer for reinterpreting EDRAM contents.
+   uint32_t edram_buffer_size =
+diff --git a/src/graphics/pipeline/shader/dxbc_translator.cpp b/src/graphics/pipeline/shader/dxbc_translator.cpp
+index 2c31a0e..80ae6c7 100644
+--- a/src/graphics/pipeline/shader/dxbc_translator.cpp
++++ b/src/graphics/pipeline/shader/dxbc_translator.cpp
+@@ -79,13 +79,13 @@ DxbcShaderTranslator::DxbcShaderTranslator(ui::GraphicsProvider::GpuVendorID ven
+ }
+ DxbcShaderTranslator::~DxbcShaderTranslator() = default;
+ 
+-std::vector<uint8_t> DxbcShaderTranslator::CreateDepthOnlyPixelShader() {
++std::vector<uint8_t> DxbcShaderTranslator::CreateDepthOnlyPixelShader(uint64_t modification) {
+   is_depth_only_pixel_shader_ = true;
+   // TODO(Triang3l): Handle in a nicer way (is_depth_only_pixel_shader_ is a
+   // leftover from when a Shader object wasn't used during translation).
+   Shader shader(xenos::ShaderType::kPixel, 0, nullptr, 0);
+   shader.AnalyzeUcode(instruction_disassembly_buffer_);
+-  Shader::Translation& translation = *shader.GetOrCreateTranslation(0);
++  Shader::Translation& translation = *shader.GetOrCreateTranslation(modification);
+   TranslateAnalyzedShader(translation);
+   is_depth_only_pixel_shader_ = false;
+   return translation.translated_binary();
+@@ -583,6 +583,34 @@ void DxbcShaderTranslator::StartVertexOrDomainShader() {
+ }
+ 
+ void DxbcShaderTranslator::StartPixelShader() {
++  if (DSV_IsApplyingDepthBias()) {
++    // Compute the derivatives before guest control flow or discard. In the
++    // float32 DSV, hardware integer bias depends on the primitive's maximum
++    // depth exponent and changes as the shadow camera moves. Xenos uses an
++    // absolute offset; use the same per-face calculation as the ROV path.
++    uint32_t temp = system_temp_depth_stencil_;
++    dxbc::Src position_z(dxbc::Src::V1D(in_reg_ps_position_, dxbc::Src::kZZZZ));
++    in_position_used_ |= 0b0100;
++    in_front_face_used_ = true;
++    a_.OpDerivRTXCoarse(dxbc::Dest::R(temp, 0b0010), position_z);
++    a_.OpDerivRTYCoarse(dxbc::Dest::R(temp, 0b0100), position_z);
++    a_.OpMax(dxbc::Dest::R(temp, 0b0010), dxbc::Src::R(temp, dxbc::Src::kYYYY).Abs(),
++             dxbc::Src::R(temp, dxbc::Src::kZZZZ).Abs());
++    a_.OpIf(true, dxbc::Src::V1D(in_reg_ps_front_face_sample_index_, dxbc::Src::kXXXX));
++    a_.OpMAd(dxbc::Dest::R(temp, 0b0001), dxbc::Src::R(temp, dxbc::Src::kYYYY),
++             LoadSystemConstant(SystemConstants::Index::kEdramPolyOffsetFront,
++                                offsetof(SystemConstants, edram_poly_offset_front), dxbc::Src::kXXXX),
++             LoadSystemConstant(SystemConstants::Index::kEdramPolyOffsetFront,
++                                offsetof(SystemConstants, edram_poly_offset_front), dxbc::Src::kYYYY));
++    a_.OpElse();
++    a_.OpMAd(dxbc::Dest::R(temp, 0b0001), dxbc::Src::R(temp, dxbc::Src::kYYYY),
++             LoadSystemConstant(SystemConstants::Index::kEdramPolyOffsetBack,
++                                offsetof(SystemConstants, edram_poly_offset_back), dxbc::Src::kXXXX),
++             LoadSystemConstant(SystemConstants::Index::kEdramPolyOffsetBack,
++                                offsetof(SystemConstants, edram_poly_offset_back), dxbc::Src::kYYYY));
++    a_.OpEndIf();
++    a_.OpAdd(dxbc::Dest::R(temp, 0b0001), dxbc::Src::R(temp, dxbc::Src::kXXXX), position_z);
++  }
+   if (edram_rov_used_) {
+     // Load the EDRAM addresses and the coverage.
+     StartPixelShader_LoadROVParameters();
+@@ -837,6 +865,9 @@ void DxbcShaderTranslator::StartTranslation() {
+         // X holds the guest oDepth - make sure it's always initialized because
+         // assumptions can't be made about the integrity of the guest code.
+         depth_stencil_temp_zero_mask = 0b0001;
++      } else if (DSV_IsApplyingDepthBias()) {
++        // X is initialized unconditionally before executing guest code.
++        depth_stencil_temp_zero_mask = 0;
+       } else {
+         assert_true(edram_rov_used_);
+         if (ROV_IsDepthStencilEarly()) {
+@@ -3006,7 +3037,7 @@ void DxbcShaderTranslator::WriteOutputSignature() {
+ 
+       // Depth (SV_Depth or SV_DepthLessEqual).
+       size_t depth_position = SIZE_MAX;
+-      if (current_shader().writes_depth() || DSV_IsWritingFloat24Depth()) {
++      if (current_shader().writes_depth() || DSV_IsWritingFloat24Depth() || DSV_IsApplyingDepthBias()) {
+         depth_position = shader_object_.size();
+         shader_object_.resize(shader_object_.size() + kParameterDwords);
+         ++parameter_count;
+@@ -3046,7 +3077,7 @@ void DxbcShaderTranslator::WriteOutputSignature() {
+           depth.semantic_name_ptr = semantic_offset;
+         }
+         const char* depth_semantic_name;
+-        if (!current_shader().writes_depth() &&
++        if (!current_shader().writes_depth() && !DSV_IsApplyingDepthBias() &&
+             shader_modification.pixel.depth_stencil_mode ==
+                 Modification::DepthStencilMode::kFloat24Truncating) {
+           depth_semantic_name = "SV_DepthLessEqual";
+@@ -3306,6 +3337,7 @@ void DxbcShaderTranslator::WriteShaderCode() {
+     }
+   } else if (is_pixel_shader()) {
+     bool is_writing_float24_depth = DSV_IsWritingFloat24Depth();
++    bool is_applying_depth_bias = DSV_IsApplyingDepthBias();
+     bool shader_writes_depth = current_shader().writes_depth();
+     // Interpolator input.
+     uint32_t interpolator_register_index = in_reg_ps_interpolators_;
+@@ -3337,7 +3369,7 @@ void DxbcShaderTranslator::WriteShaderCode() {
+       // with SV_DepthLessEqual, per-sample (or centroid, but this isn't
+       // applicable here) position is mandatory. However, with depth output, on
+       // the guest, there's only one depth value for the whole pixel.
+-      ao_.OpDclInputPSSIV((is_writing_float24_depth && !shader_writes_depth)
++      ao_.OpDclInputPSSIV(((is_writing_float24_depth || is_applying_depth_bias) && !shader_writes_depth)
+                               ? dxbc::InterpolationMode::kLinearNoPerspectiveSample
+                               : dxbc::InterpolationMode::kLinearNoPerspective,
+                           dxbc::Dest::V1D(in_reg_ps_position_, in_position_used_),
+@@ -3376,8 +3408,8 @@ void DxbcShaderTranslator::WriteShaderCode() {
+         ao_.OpDclOutput(dxbc::Dest::OMask());
+       }
+       // Depth output.
+-      if (is_writing_float24_depth || shader_writes_depth) {
+-        if (!shader_writes_depth && GetDxbcShaderModification().pixel.depth_stencil_mode ==
++      if (is_writing_float24_depth || is_applying_depth_bias || shader_writes_depth) {
++        if (!shader_writes_depth && !is_applying_depth_bias && GetDxbcShaderModification().pixel.depth_stencil_mode ==
+                                         Modification::DepthStencilMode::kFloat24Truncating) {
+           ao_.OpDclOutput(dxbc::Dest::ODepthLE());
+         } else {
+diff --git a/src/graphics/pipeline/shader/dxbc_translator_om.cpp b/src/graphics/pipeline/shader/dxbc_translator_om.cpp
+index a7d508a..abcb084 100644
+--- a/src/graphics/pipeline/shader/dxbc_translator_om.cpp
++++ b/src/graphics/pipeline/shader/dxbc_translator_om.cpp
+@@ -1587,6 +1587,8 @@ void DxbcShaderTranslator::CompletePixelShader_DSV_DepthTo24Bit() {
+       a_.OpEndIf();
+       // Write the depth from the temporary to the system depth output.
+       a_.OpMov(dxbc::Dest::ODepth(), dxbc::Src::R(system_temp_depth_stencil_, dxbc::Src::kXXXX));
++    } else if (DSV_IsApplyingDepthBias()) {
++      a_.OpMov(dxbc::Dest::ODepth(), dxbc::Src::R(system_temp_depth_stencil_, dxbc::Src::kXXXX));
+     }
+     return;
+   }
+@@ -1606,7 +1608,9 @@ void DxbcShaderTranslator::CompletePixelShader_DSV_DepthTo24Bit() {
+     // assumption of it being clamped while working with the bit representation.
+     temp = PushSystemTemp();
+     in_position_used_ |= 0b0100;
+-    a_.OpMul(dxbc::Dest::R(temp, 0b0001), dxbc::Src::V1D(in_reg_ps_position_, dxbc::Src::kZZZZ),
++    a_.OpMul(dxbc::Dest::R(temp, 0b0001),
++             DSV_IsApplyingDepthBias() ? dxbc::Src::R(system_temp_depth_stencil_, dxbc::Src::kXXXX)
++                                      : dxbc::Src::V1D(in_reg_ps_position_, dxbc::Src::kZZZZ),
+              dxbc::Src::LF(2.0f), true);
+   }
+ 
+@@ -1626,7 +1630,8 @@ void DxbcShaderTranslator::CompletePixelShader_DSV_DepthTo24Bit() {
+     // The smallest denormalized 20e4 number is -34 - should drop 23 mantissa
+     // bits at -34.
+     // Anything smaller than 2^-34 becomes 0.
+-    dxbc::Dest truncate_dest(shader_writes_depth ? dxbc::Dest::ODepth() : dxbc::Dest::ODepthLE());
++    dxbc::Dest truncate_dest((shader_writes_depth || DSV_IsApplyingDepthBias())
++                                ? dxbc::Dest::ODepth() : dxbc::Dest::ODepthLE());
+     // Check if the number is representable as a float24 after truncation - the
+     // exponent is at least -34.
+     a_.OpUGE(temp_y_dest, temp_x_src, dxbc::Src::LU(0x2E800000));
+@@ -2623,10 +2628,12 @@ void DxbcShaderTranslator::CompletePixelShader_WriteToROV() {
+ 
+ void DxbcShaderTranslator::CompletePixelShader() {
+   if (is_depth_only_pixel_shader_) {
+-    // The depth-only shader only needs to do the depth test and to write the
+-    // depth to the ROV.
++    // With ROV, perform the depth test and write to EDRAM. With host depth
++    // targets, export the biased and optionally converted depth to the DSV.
+     if (edram_rov_used_) {
+       CompletePixelShader_WriteToROV();
++    } else {
++      CompletePixelShader_DSV_DepthTo24Bit();
+     }
+     return;
+   }

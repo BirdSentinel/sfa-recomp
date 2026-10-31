@@ -1,0 +1,3 @@
+// Windows executable icon, converted from decomp/extracted/SFA.png.
+// Keep resource 101 first so Explorer uses it as the application icon.
+101 ICON "SFA.ico"
