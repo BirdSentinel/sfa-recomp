@@ -3,11 +3,22 @@
 #include <iterator>
 #include <iostream>
 int main(int argc, char** argv) {
-  if (argc != 3) throw std::runtime_error("Expected input and output package paths");
+  if (argc != 3 && argc != 4) throw std::runtime_error("Expected input and output package paths");
   std::ifstream input(argv[1], std::ios::binary);
   if (!input) throw std::runtime_error("Missing input package");
   std::vector<uint8_t> original((std::istreambuf_iterator<char>(input)), {});
   auto patched = original;
+  if (argc == 4) {
+    snupi::startup::PatchPauseMenuPackage(patched);
+    auto again = patched;
+    snupi::startup::PatchPauseMenuPackage(again);
+    if (again != patched || patched.size() != original.size())
+      throw std::runtime_error("Pause patch must be idempotent and preserve length");
+    std::ofstream output(argv[2], std::ios::binary);
+    output.write(reinterpret_cast<const char*>(patched.data()), patched.size());
+    if (!output) throw std::runtime_error("Pause output write failed");
+    return 0;
+  }
   snupi::startup::PatchMainMenuReturnAnimation(patched);
   auto normal = patched;
   snupi::startup::PatchMainMenuReturnAnimation(patched);

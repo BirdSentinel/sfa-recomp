@@ -24,7 +24,11 @@ int main() {
   words[object + 372] = 2;
   words[data + 36] = 0x7400;
   check(0x7400);
+  words[data + 36] = 0x7500;
+  check(0x7500);
   words[object + 372] = 3;
+  check(0);  // Internal resolution must have exactly 1x and 2x.
+  words[data + 36] = 0x7400;
   check(0);  // VSync must have exactly Off and On.
   words[data + 36] = 0x34;  // original on/off array
   check(0);

@@ -155,6 +155,20 @@ def patch(data):
             struct.pack_into('>H', blob, 2, 40 + slot)
         e.set(condition, 'm_ComparisonValue', struct.pack('>f', 8 + slot))
         e.append_refs(50895, 'm_aConditions', [condition])
+    # Repurpose Autosave's existing selector and text, with a separate saved
+    # renderer scale. Disconnect both the toggle popup and its init assignment.
+    label = bytearray(e.get(autosave, 'm_buttonText'))
+    struct.pack_into('>I', label, 14, 0x7003)
+    e.set(autosave, 'm_buttonText', label)
+    value = bytearray(e.get(49643, 'm_aVariable')[:14])
+    struct.pack_into('>I', value, 8, 12)
+    e.set(49643, 'm_aVariable', value + array([0x7500, 0x7501]) + bytes(4))
+    for case, source in [(50821, 50818), (50838, 50835)]:
+        action = e.clone([source], {e.pkg.exports[source]['parent']: case, 49638: 49642})[source]
+        e.set(case, 'm_aActions', array([action]))
+    e.set(50410, 'm_aActions', array([]))
+    e.set(50416, 'm_aActions', array([]))
+    e.set(50868, 'm_aActions', array([]))
     # Replace the legacy boolean toggle and its confirmation dialog with a
     # CurrentIndex selector. Leave its existing label and button design intact.
     value = bytearray(e.get(49641, 'm_aVariable')[:14])
@@ -200,4 +214,4 @@ if __name__ == '__main__':
         backup.write_bytes(args.package.read_bytes())
     result = patch(backup.read_bytes())
     args.package.write_bytes(result)
-    print('Installed native Resolution, Display Mode and VSync rows; package and navigation validation passed.')
+    print('Installed Resolution, Display Mode, VSync and Internal resolution rows; package and navigation validation passed.')

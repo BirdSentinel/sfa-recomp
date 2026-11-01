@@ -1,9 +1,9 @@
 # Display settings
 
 The game's Help & Options → Settings menu includes **Resolution**, **Display
-Mode**, and **VSync**, using its existing selector rows, arrows, value boxes and sounds.
+Mode**, **VSync**, and **Internal resolution (restart)**, using its existing selector rows, arrows, value boxes and sounds.
 Use the controller's normal left/right menu controls, or their keyboard mappings
-(A/D for the left stick; Shift+Left/Right for the D-pad). Changes apply immediately
+(A/D for the left stick; Shift+Left/Right for the D-pad). Display and VSync changes apply immediately
 and are saved in `saves/display-settings.txt` beside the game.
 Space / controller A confirms and closes Settings, just like the original rows.
 
@@ -22,7 +22,7 @@ and restores the original settings; use a separate test user-data directory.
 - Fullscreen: switches the monitor to the selected supported resolution. The
   desktop mode is restored on focus loss or exit.
 
-Resolution controls the output size; the existing 1x/2x renderer scale remains
+Resolution controls the output size; the existing renderer scale remains
 independent. Choices come from the monitor attached to the game window at launch.
 Unsupported saved resolutions fall back to the desktop size. A failed display
 change restores the previous choice. Explicit `--fullscreen` (borderless) or
@@ -55,10 +55,23 @@ Validation:
 
 ```text
 python tests/display_package_test.py ../decomp/extracted/Packages/UI/FrontEnd.pkg
-snupi.exe --display_settings_selftest=true
+snoopy.exe --display_settings_selftest=true
 ```
 
 The opt-in runtime self-test cycles all three modes and two resolutions, verifies
 actual window/display sizes and persistence, then restores the original settings.
 Windows mode changes require a normal desktop process; a restricted sandbox may
 reject them. The self-test uses a separate temporary settings file.
+
+The former Autosave row is now **Internal resolution (restart)** with **1x** and
+**2x** choices. They render the native scene at 1152 x 640 and 2304 x 1280,
+respectively, independently of the window resolution. This setting is saved in
+`internal-resolution.txt` and applies after restarting the game. Autosave is
+hardcoded On and cannot be disabled through the replacement selector.
+
+Dragging a window border uses a UI-thread timer during the Windows native
+move/resize loop. It updates the presentation surface to the current client size
+and continues drawing with the existing frame cap and VSync policy. The timer
+stops on release or window destruction; it does not change internal resolution.
+`--window_resize_selftest=true` checks repeated resizes in a native-only message
+loop after startup and logs the number of completed paints.

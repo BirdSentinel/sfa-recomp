@@ -1,23 +1,29 @@
 # Internal resolution
 
-Close the game before selecting a different scale. All launchers use the
-optimized RelWithDebInfo build, normal RTV renderer, and existing save data.
+Help & Options -> Settings has an Internal resolution (restart) selector in
+place of Autosave. Left/right selects exactly 1x or 2x; Space/controller A uses
+the existing confirm-and-close action. The saved choice applies on the next
+launch. Default is 1x.
 
-- `start.bat`: native resolution (renderer default).
-- `start-2x.bat`: 2x width and 2x height, or four times the pixels.
-- `start-4x.bat`: 4x width and 4x height, or sixteen times the pixels.
+- 1x: native 1152 x 640 full-scene rendering.
+- 2x: 2304 x 1280 full-scene rendering (twice each dimension).
 
-The same shortcuts are provided in both existing build directories.
-You can also run `start.bat --resolution_scale=2` or
-`start.bat --resolution_scale=4` from a command prompt.
+This uses the renderer's original integer draw scaling and leaves the native
+scene allocation, shared textures and window-resolution logic unchanged.
+The display Resolution option still controls the window/output size separately.
+2x increases GPU load and memory use.
 
-These options scale internal rendering, independently of the window size.
-For a 1280x720 render target, 2x is 2560x1440 and 4x is 5120x2880.
-Higher scaling increases GPU load and memory use and may reduce frame rate.
+The menu choice is saved as 1 or 2 in saves/internal-resolution.txt, and takes
+precedence over legacy resolution_scale / draw_resolution_scale arguments and
+scale shortcuts. Invalid or missing saved values use 1x. Renderer startup logs
+the actual selected scale. No automatic window-to-scene sizing is installed.
 
-The installed ReXGlue 0.10.0 Xenos plugin declares `resolution_scale` as the
-combined setting for `draw_resolution_scale_x` and `draw_resolution_scale_y`.
-Its help strings confirm that these are draw-resolution scales. The renderer
-may reduce unsupported scales and reports that in the game log. Visual
-correctness and performance at 2x and 4x still require a gameplay check on
-the selected GPU.
+Autosave is permanently On. The native player getter reinstates savingEnabled
+for profiles previously set to Off, and the native PlayerSavingEnabled action
+cannot disable it. The old settings toggle and confirmation actions are
+removed. The normal checks for a valid player/save destination still apply.
+
+--internal_resolution_selftest=true checks both saved choices, rejects invalid
+indices, verifies that an Off local-player flag becomes On through the native
+getter, and leaves the user's chosen scale intact. Use a separate test user-data
+directory. Both 1x and 2x renderer startup paths are checked independently.

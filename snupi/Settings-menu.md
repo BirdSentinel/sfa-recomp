@@ -26,3 +26,7 @@ verified applying the patch again produces identical bytes. The existing hidden
 UI-scale button remains unchanged. The prior download-only patch passed a game
 startup check. Visual verification remains unavailable because computer-use
 access to Snupi was denied; the save-device removal was checked structurally.
+
+Autosave is now forced On in native player access and save-enable actions.
+Its settings row is replaced with Internal resolution (restart): 1x or 2x.
+See Internal-resolution.md for persistence and restart behavior.

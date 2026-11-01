@@ -136,7 +136,7 @@ class MainMenuPackage {
   }
   const std::vector<Export>& Exports() const { return exports; }
  private:
-  [[noreturn]] static void Fail() { throw std::runtime_error("-hidelive: unsupported FrontEnd.pkg layout"); }
+  [[noreturn]] static void Fail() { throw std::runtime_error("Live menu filtering: unsupported UI package layout"); }
   void Bounds(uint64_t offset, uint64_t count) const {
     if (offset > data.size() || count > data.size() - offset) Fail();
   }
@@ -178,6 +178,23 @@ inline void PatchMainMenuReturnAnimation(std::vector<uint8_t>& data) {
     ++count;
   }
   if (count != 1) throw std::runtime_error("Unexpected Enlist return action count");
+}
+
+// InGame.pkg owns the shared in-game pause menu, independently of FrontEnd.
+inline void PatchPauseMenuPackage(std::vector<uint8_t>& data) {
+  MainMenuPackage p(data);
+  const auto root = p.Find("mp_pause", "Interface");
+  const auto boards = p.Find("2_btn_leaderboards", "Element_2DInterfaceButton", root);
+  const auto help = p.Find("1_btn_helpAndOptions", "Element_2DInterfaceButton", root);
+  const auto achievements = p.Find("3_btn_achievments", "Element_2DInterfaceButton", root);
+  const auto manager = p.Find("manager_pause", "Element_2DElementManager", root);
+  p.Remove(root, "m_aRenderList", {boards});
+  p.Remove(manager, "m_aChildren", {boards});
+  // Preserve native conditional Restart/Objectives visibility and button IDs.
+  // The dynamic manager packs the remaining rows; navigation bypasses the row.
+  p.Set(manager, "m_vertical", 5);
+  p.Set(help, "m_downElement", achievements);
+  p.Set(achievements, "m_upElement", help);
 }
 
 inline void PatchMainMenuPackage(std::vector<uint8_t>& data) {

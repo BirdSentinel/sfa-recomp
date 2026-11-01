@@ -78,3 +78,13 @@ for case, operator in [(50819, 0x2d3), (50836, 0x2d4)]:
 assert 50790 not in refs(50779, 'm_aActions')
 assert not refs(50603, 'm_aActions') and not refs(50608, 'm_aActions')
 print('Display package tests passed: layout, values, +/- actions, Space/A confirm, navigation, deterministic rebuild.')
+
+assert struct.unpack_from('>I', prop(49706, 'm_buttonText'), 14)[0] == 0x7003
+assert struct.unpack_from('>3I', prop(49643, 'm_aVariable'), 14) == (2, 0x7500, 0x7501)
+for case, operator in [(50821, 0x2d3), (50838, 0x2d4)]:
+    action, = refs(case, 'm_aActions')
+    assert integer(action, 'm_variable') == 49642
+    assert integer(action, 'm_operator') >> 16 == operator
+for trigger in [50410, 50416, 50868]:
+    assert not refs(trigger, 'm_aActions')
+print('Internal resolution replaces Autosave: 1x/2x, both directions, old toggle and init disconnected.')

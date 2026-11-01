@@ -2,6 +2,8 @@
 #include "display_guest.h"
 #include "frame_limiter.h"
 #include "vsync_settings.h"
+#include "internal_resolution.h"
+#include "window_resize.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -35,6 +37,7 @@ namespace {
 constexpr uint32_t kResolutionStrings = 0x7100, kModeStrings = 0x7200;
 constexpr uint32_t kFramerateStrings = 0x7300;
 constexpr uint32_t kVsyncStrings = 0x7400;
+constexpr uint32_t kInternalResolutionStrings = 0x7500;
 constexpr int kMaxResolutions = 32;
 struct Resolution { int width, height; };
 std::vector<Resolution> resolutions;  // Immutable after initialization.
@@ -50,6 +53,7 @@ std::atomic<int> selected_resolution = 0, selected_mode = 0;
 int desktop_index = 0;
 
 int ChoiceIndex(uint32_t tag) {
+  if (tag == kInternalResolutionStrings) return snupi::internal_resolution::SelectedIndex();
   if (tag == kVsyncStrings) return snupi::vsync::SelectedIndex();
   if (tag == kFramerateStrings) return snupi::framerate::SelectedIndex();
   return tag == kResolutionStrings ? selected_resolution.load() : selected_mode.load();
@@ -171,6 +175,7 @@ void Save() {
 }
 
 int Change(uint32_t tag, int index) {
+  if (tag == kInternalResolutionStrings) return snupi::internal_resolution::Select(index);
   if (tag == kVsyncStrings) {
     int result = snupi::vsync::SelectedIndex();
     context->CallInUIThreadSynchronous([&] { result = snupi::vsync::Select(index); });
@@ -208,6 +213,8 @@ void PrepareLocalization(rex::Runtime& runtime, const std::filesystem::path& gam
   std::string entries = "\r\n[PC Display]\r\nResolution[28672]=\"Resolution\"\r\n"
                         "DisplayMode[28673]=\"Display Mode\"\r\n"
                         "VSync[28674]=\"VSync\"\r\n"
+                        "InternalResolution[28675]=\"Internal resolution (restart)\"\r\n"
+                        "Internal1x[29952]=\"1x\"\r\nInternal2x[29953]=\"2x\"\r\n"
                         "VSyncOff[29696]=\"Off\"\r\nVSyncOn[29697]=\"On\"\r\n";
   for (int i = 0; i < kMaxResolutions; ++i) {
     const auto size = resolutions[std::min(i, int(resolutions.size()) - 1)];
@@ -304,11 +311,13 @@ void Initialize(rex::Runtime& runtime, rex::ui::Window& app_window,
   snupi::framerate::Initialize(user_root);
   REXLOG_INFO("Preparing native display settings (UI thread: {})", context->IsInUIThread());
   if (!context->CallInUIThreadSynchronous([&] {
+    window->SetTitle("Snoopy Flying Ace");
     snupi::vsync::Initialize(user_root);
     if (auto* graphics = runtime.graphics_system())
       if (auto* presenter = graphics->presenter())
         snupi::framerate::AttachPresenter(*presenter);
     native_window = static_cast<HWND>(window->GetNativeWindowHandle());
+    snupi::resize::Initialize(*window);
     monitor.cbSize = sizeof(monitor);
     desktop.dmSize = sizeof(desktop);
     if (!native_window || !GetMonitorInfoW(MonitorFromWindow(native_window, MONITOR_DEFAULTTONEAREST), &monitor) ||

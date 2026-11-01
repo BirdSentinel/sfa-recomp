@@ -15,9 +15,11 @@ set(SNUPI_SOURCES
     src/main.cpp
     src/guest_fixes.cpp
     src/skip_intro.cpp
+    src/internal_resolution.cpp
     src/display_settings.cpp
     src/frame_limiter.cpp
     src/vsync_settings.cpp
+    src/window_resize.cpp
 )
 
 if(WIN32)
@@ -28,6 +30,7 @@ else()
     add_executable(snupi ${SNUPI_SOURCES})
 endif()
 set_target_properties(snupi PROPERTIES OUTPUT_NAME snoopy)
+target_link_libraries(snupi PRIVATE comctl32)
 
 # Always build the game's RTV-only renderer, never stage the generic SDK plugin.
 if(NOT WIN32)
@@ -65,6 +68,9 @@ if(SNUPI_BUILD_STARTUP_TESTS)
   add_test(NAME snupi_main_menu COMMAND snupi_main_menu_test
     "${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extracted/Packages/UI/FrontEnd.pkg"
     "${CMAKE_CURRENT_BINARY_DIR}/test-hidelive.pkg")
+  add_test(NAME snupi_pause_menu COMMAND snupi_main_menu_test
+    "${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extracted/Packages/UI/InGame.pkg"
+    "${CMAKE_CURRENT_BINARY_DIR}/test-hidelive-pause.pkg" pause)
   target_include_directories(snupi_startup_test PRIVATE src)
   add_test(NAME snupi_startup COMMAND snupi_startup_test
     "${CMAKE_CURRENT_SOURCE_DIR}/../decomp/extracted/Packages/UI/InitialLoadingInterface.pkg"

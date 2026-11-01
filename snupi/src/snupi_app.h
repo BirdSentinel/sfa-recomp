@@ -11,6 +11,7 @@
 #include <stdexcept>
 #include "skip_intro.h"
 #include "display_settings.h"
+#include "internal_resolution.h"
 
 class SnupiApp : public rex::ReXApp {
  public:
@@ -25,6 +26,7 @@ class SnupiApp : public rex::ReXApp {
   // Override virtual hooks for customization:
   // void OnPostInitLogging() override {}
   void OnPreSetup(rex::RuntimeConfig& config) override {
+    snupi::internal_resolution::Initialize(user_data_root());
     // The launchers previously forced windowed mode. Keep that first-run
     // default, then let the saved in-game display choice take precedence.
     if (rex::cvar::GetFlagSource("fullscreen") == rex::cvar::Source::kDefault) {

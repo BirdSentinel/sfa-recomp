@@ -17,7 +17,7 @@
 REXCVAR_DEFINE_BOOL(skipintro, false, "Game", "Skip startup logos and save disclaimer; keep FrontEnd_Intro")
     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
 
-REXCVAR_DEFINE_BOOL(hidelive, false, "Game", "Hide Xbox LIVE, Leaderboards and Download Content from the main menu")
+REXCVAR_DEFINE_BOOL(showlive, false, "Game", "Show online main-menu buttons and pause-menu Leaderboards (hidden by default)")
     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
 
 namespace {
@@ -44,7 +44,7 @@ bool GuestTextEquals(const uint8_t* base, uint32_t address, std::string_view tex
 namespace snupi::startup {
 void PrepareStartupPackages(rex::Runtime& runtime, const std::filesystem::path& game_root,
                             const std::filesystem::path& cache_root) {
-  const bool skip = REXCVAR_GET(skipintro), hide = REXCVAR_GET(hidelive);
+  const bool skip = REXCVAR_GET(skipintro), hide = !REXCVAR_GET(showlive);
   const auto source = game_root / "Packages/UI";
   std::map<std::string, std::vector<uint8_t>> patched;
   auto read = [&](const char* name) -> std::vector<uint8_t>& {
@@ -57,9 +57,12 @@ void PrepareStartupPackages(rex::Runtime& runtime, const std::filesystem::path& 
   if (skip) PatchIntroPackage(read("InitialLoadingInterface.pkg"));
   auto& frontend = read("FrontEnd.pkg");
   PatchMainMenuReturnAnimation(frontend);
-  if (hide) PatchMainMenuPackage(frontend);
-  // Separate caches prevent a previous -hidelive launch from affecting a later
-  // normal or -skipintro-only launch, and let both options compose.
+  if (hide) {
+    PatchMainMenuPackage(frontend);
+    PatchPauseMenuPackage(read("InGame.pkg"));
+  }
+  // Keep default-hidden packages separate from -showlive packages, with or
+  // without -skipintro. Each launch starts from the original game packages.
   const auto folder = cache_root / (skip ? (hide ? "skipintro-hidelive" : "skipintro") :
                                          (hide ? "hidelive" : "frontend"));
   std::filesystem::create_directories(folder);
@@ -107,7 +110,8 @@ void PrepareStartupPackages(rex::Runtime& runtime, const std::filesystem::path& 
   }
   REXLOG_INFO("Main menu return animation fixed: Enlist Back uses native Load -> Default");
   if (skip) REXLOG_INFO("Skip intro enabled: startup package redirected; Press Start input remains manual");
-  if (hide) REXLOG_INFO("Hide Live enabled: Xbox LIVE, Leaderboards and Download Content removed; initial selection is Enlist Now");
+  if (!hide) REXLOG_INFO("Show Live enabled: original online main-menu and pause-menu buttons restored");
+  if (hide) REXLOG_INFO("Live buttons hidden by default: Xbox LIVE, Leaderboards and Download Content removed; pause-menu Leaderboards removed; initial selection is Enlist Now");
 }
 
 REX_EXTERN(__imp__sub_829085B0);

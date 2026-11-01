@@ -5,29 +5,31 @@ config and command-line values. No license launch option is needed.
 
 Returning from Enlist Now uses the main menu's native Load-to-Default slide
 animation on every launch. The shipped Back action's invalid `Show` mode
-override is removed in the cached package, with or without `-hidelive`.
+override is removed in the cached package on every launch.
 
-Append `-hidelive` to hide **Xbox LIVE**, **Leaderboards**, and **Download Content**
-from the main menu. Keyboard/controller navigation skips those rows and starts
-on Enlist Now. The download notification badge is hidden as well. Other menus,
-including achievements and settings, are unchanged.
+**Xbox LIVE**, **Leaderboards**, and **Download Content** are hidden from the
+main menu by default. **Leaderboards** is also hidden in the in-game pause menu.
+Keyboard/controller navigation skips those rows, and the main menu starts on
+Enlist Now. The download notification badge is hidden as well.
+
+Append `-showlive` to restore those buttons in both menus for the current launch:
 
 ```bat
-snoopy.exe -hidelive
-snoopy.exe -skipintro -hidelive
-launch_1x.bat -hidelive
+snoopy.exe -showlive
+snoopy.exe -skipintro -showlive
+launch_1x.bat -showlive
 ```
 
-With `-hidelive`, the remaining buttons share a compact layout and the paper
-panel shrinks to fit the four full-game options and stays anchored to the viewport
-bottom, including during slide transitions. Both aspect-ratio layouts keep
-the existing button and text sizes; the obsolete group divider is removed.
+`--showlive` is also accepted. The previous `-hidelive` flag has been replaced;
+no flag is needed to hide the online entries. Omit `-showlive` to use the default
+compact menu. Its four remaining buttons and paper panel stay anchored to the
+viewport bottom, including during slide transitions. Both aspect-ratio layouts
+keep the existing button and text sizes.
 
-`--hidelive` is also accepted. This option affects only the current launch:
-omitting it restores the original buttons. It patches a cached FrontEnd.pkg,
-preserves the original game file, and composes with `-skipintro` using a separate
-cache for each combination. It hides menu entries; it does not disable network
-services elsewhere in the game.
+Separate cached packages keep default-hidden and `-showlive` launches isolated,
+including when combined with `-skipintro`. Original game packages are preserved.
+Achievements and settings are unchanged. Hiding menu entries does not disable
+network services elsewhere in the game.
 
 Append `-skipintro` to skip startup logos and the save disclaimer:
 
@@ -54,10 +56,11 @@ loading to finish. There is no additional fixed 12-second wait.
 It does not press Start, choose a profile,
 or enter gameplay.
 
-The original game packages and movies are unchanged. Only an opted-in process
-redirects the UI package directory to its cache's `skipintro` folder. The startup
-package is patched there; other UI packages are linked unchanged (copied if the
-cache is on another volume). The actual game file-open path is checked against
+The original game packages and movies are unchanged. Each process redirects
+the UI package directory to the cache for its selected startup options. The
+startup package is patched only with `-skipintro`; menu packages reflect the
+Live-button choice. Other packages are linked unchanged (copied if the cache
+is on another volume). The actual game file-open path is checked against
 the patched bytes at startup. Idle menu animations, later movies, saves, keyboard controls,
 and controller controls retain their normal behavior.
 

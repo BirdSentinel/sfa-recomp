@@ -102,10 +102,25 @@ index 3b0fd61..7c0c431 100644
    bool DSV_IsWritingFloat24Depth() const {
      if (edram_rov_used_) {
 diff --git a/src/graphics/d3d12/command_processor.cpp b/src/graphics/d3d12/command_processor.cpp
-index 19874a5..ab0e501 100644
+index 19874a5..f987163 100644
 --- a/src/graphics/d3d12/command_processor.cpp
 +++ b/src/graphics/d3d12/command_processor.cpp
-@@ -3913,11 +3913,7 @@ void D3D12CommandProcessor::UpdateSystemConstantValues(
+@@ -914,6 +914,14 @@ bool D3D12CommandProcessor::SetupContext() {
+   uint32_t draw_resolution_scale_x, draw_resolution_scale_y;
+   bool draw_resolution_scale_not_clamped =
+       TextureCache::GetConfigDrawResolutionScale(draw_resolution_scale_x, draw_resolution_scale_y);
++#if SNUPI_RTV_ONLY
++  // The menu owns this restart-only choice. Preserve native guest scene sizes.
++  const auto scene_scale = rex::cvar::GetFlagByName("snupi_internal_resolution");
++  if (!scene_scale.empty()) {
++    draw_resolution_scale_x = draw_resolution_scale_y = scene_scale == "2" ? 2 : 1;
++    REXLOG_INFO("RTV internal draw scale: {}x{}", draw_resolution_scale_x, draw_resolution_scale_y);
++  }
++#endif
+   if (!D3D12TextureCache::ClampDrawResolutionScaleToMaxSupported(
+           draw_resolution_scale_x, draw_resolution_scale_y, provider)) {
+     draw_resolution_scale_not_clamped = false;
+@@ -3913,11 +3921,7 @@ void D3D12CommandProcessor::UpdateSystemConstantValues(
      }
    }
  
@@ -118,7 +133,7 @@ index 19874a5..ab0e501 100644
      // For non-polygons, front polygon offset is used, and it's enabled if
      // POLY_OFFSET_PARA_ENABLED is set, for polygons, separate front and back
      // are used.
-@@ -3948,6 +3944,12 @@ void D3D12CommandProcessor::UpdateSystemConstantValues(
+@@ -3948,6 +3952,12 @@ void D3D12CommandProcessor::UpdateSystemConstantValues(
                                       std::max(draw_resolution_scale_x, draw_resolution_scale_y);
      poly_offset_front_scale *= poly_offset_scale_factor;
      poly_offset_back_scale *= poly_offset_scale_factor;
@@ -131,7 +146,7 @@ index 19874a5..ab0e501 100644
      dirty |= system_constants_.edram_poly_offset_front_scale != poly_offset_front_scale;
      system_constants_.edram_poly_offset_front_scale = poly_offset_front_scale;
      dirty |= system_constants_.edram_poly_offset_front_offset != poly_offset_front_offset;
-@@ -3956,6 +3958,12 @@ void D3D12CommandProcessor::UpdateSystemConstantValues(
+@@ -3956,6 +3966,12 @@ void D3D12CommandProcessor::UpdateSystemConstantValues(
      system_constants_.edram_poly_offset_back_scale = poly_offset_back_scale;
      dirty |= system_constants_.edram_poly_offset_back_offset != poly_offset_back_offset;
      system_constants_.edram_poly_offset_back_offset = poly_offset_back_offset;
