@@ -7,6 +7,17 @@ no original game files, generated guest code, game icon, saves, SDK binaries,
 executables, captures, or temporary output. It's made with AI, yes. If it
 bothers you, then don't play with it, I made this just for my own entertainment.
 
+The game uses a modified Xenos RTV renderer, you can find the modifications in this repo.
+It also has game fixes, like unlocked framerate and unlocked aspect ratio.
+I recommend to play the game with controller, but keyboard also works:
+WASD: left stick
+Arrows: right stick
+Space / Backspace: A / B
+L / P: X / Y
+Q / E: triggers
+1 / 3: bumpers
+Enter: Start/pause
+
 Layout
 ------
 snupi/             Application hooks, build files, tests, launchers and tools.
