@@ -8,6 +8,7 @@
 #include <rex/filesystem.h>
 #include <rex/cvar.h>
 #include <rex/logging.h>
+#include <rex/ui/keybinds.h>
 #include <stdexcept>
 #include "skip_intro.h"
 #include "display_settings.h"
@@ -54,7 +55,15 @@ class SnupiApp : public rex::ReXApp {
   void OnShutdown() override {
     snupi::display::Shutdown();
   }
-  // void OnCreateDialogs(rex::ui::ImGuiDrawer* drawer) override {}
+  void OnCreateDialogs(rex::ui::ImGuiDrawer*) override {
+    // Runs after the SDK registers its overlays. Remove callbacks rather than
+    // clearing key strings, so saved configs cannot restore debug shortcuts.
+    rex::ui::UnregisterBind("bind_debug_overlay");
+    rex::ui::UnregisterBind("bind_settings");
+    rex::ui::UnregisterBind("bind_console");
+    rex::ui::UnregisterBind("bind_achievements");
+    REXLOG_INFO("SDK overlay keyboard shortcuts disabled");
+  }
   // std::unique_ptr<rex::ui::ImGuiDialog> CreateAchievementsOverlay() override;
   // std::unique_ptr<rex::ui::AchievementNotificationDialog>
   // CreateAchievementNotificationDialog() override;

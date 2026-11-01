@@ -29,3 +29,7 @@ this file. Mouse look is disabled so the right stick uses arrow keys.
 Future builds enable keyboard emulation by default in `SnupiApp::OnPreSetup`.
 To disable it, set `mnk_mode = false` in the executable's `snupi.toml`, or launch
 with `--no-mnk_mode`. The physical controller backend is unchanged.
+
+SDK debug, settings, console, and achievement overlay shortcuts are disabled,
+including saved rebindings. F1–F12 cannot open these overlays. Use the game's
+own menus for settings and achievements.
